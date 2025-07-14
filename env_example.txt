@@ -1,0 +1,17 @@
+# Database
+DATABASE_URL=postgresql://usuario:password@localhost:5432/pizzabot_db
+
+# Twilio
+TWILIO_ACCOUNT_SID=your_account_sid_here
+TWILIO_AUTH_TOKEN=your_auth_token_here
+TWILIO_PHONE_NUMBER=+1234567890
+
+# App
+SECRET_KEY=your_secret_key_here
+DEBUG=True
+
+# Ngrok (for development)
+NGROK_URL=https://your-ngrok-url.ngrok.io
+
+# Sentry (opcional para monitoreo en producción)
+SENTRY_DSN=https://your-sentry-dsn@sentry.io/project 
