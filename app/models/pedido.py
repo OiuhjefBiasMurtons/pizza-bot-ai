@@ -19,6 +19,9 @@ class Pedido(Base):
     # Relación con cliente
     cliente = relationship("Cliente")
     
+    # Relación con detalles de pedido
+    detalles = relationship("DetallePedido", back_populates="pedido")
+    
     def __repr__(self):
         return f"<Pedido(id={self.id}, cliente_id={self.cliente_id}, total={self.total})>"
 
@@ -35,7 +38,7 @@ class DetallePedido(Base):
     subtotal = Column(Float, nullable=False)
     
     # Relaciones
-    pedido = relationship("Pedido")
+    pedido = relationship("Pedido", back_populates="detalles")
     pizza = relationship("Pizza")
     
     def __repr__(self):

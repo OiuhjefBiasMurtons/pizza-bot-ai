@@ -34,7 +34,7 @@ class PedidoService:
         for item in carrito:
             detalle = DetallePedido(
                 pedido_id=pedido.id,
-                pizza_id=item['pizza'].id,
+                pizza_id=item['pizza_id'],
                 tamano=item['tamano'],
                 cantidad=item['cantidad'],
                 precio_unitario=item['precio'],
