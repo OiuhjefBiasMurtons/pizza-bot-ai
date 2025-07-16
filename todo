@@ -1,3 +1,10 @@
 Ver como funciona la lógica de WhatsApp
 Que el menu sea un JPG o menu de whatsapp 
 Intentar integrar AI ya variables al escribir son muchas
+
+------
+
+Si escriben a determinada hora mandar un mensaje dew que no hay servicio pero que su pedido puede ser tomado
+QUe pasa si escriben en 1 solo mensaje todo (ej: Hola, me mandas una pizza hawuaiana a esta direccion:L  asdladk)
+El pedir pizzas es por nombres, no por numeros (dame 2 pizzas hawuaianas medianas y grande de pepperoni)
+Agregar ingredientes

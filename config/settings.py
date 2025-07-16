@@ -12,6 +12,9 @@ class Settings:
     TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
     TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER")
     
+    # OpenAI
+    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+    
     # App
     SECRET_KEY = os.getenv("SECRET_KEY", "tu_clave_secreta_aqui")
     DEBUG = os.getenv("DEBUG", "True").lower() == "true"
@@ -25,4 +28,4 @@ class Settings:
     # Sentry (opcional para monitoreo en producción)
     SENTRY_DSN = os.getenv("SENTRY_DSN")
 
-settings = Settings() 
+settings = Settings()

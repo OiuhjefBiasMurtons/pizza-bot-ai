@@ -6,6 +6,7 @@ from slowapi.util import get_remote_address
 from database.connection import get_db
 from app.services.whatsapp_service import WhatsAppService
 from app.services.bot_service import BotService
+from app.services.enhanced_bot_service import EnhancedBotService
 from twilio.request_validator import RequestValidator
 from twilio.base.exceptions import TwilioRestException
 from config.settings import settings
@@ -19,8 +20,8 @@ limiter = Limiter(key_func=get_remote_address)
 # Router de webhook
 router = APIRouter()
 
-async def process_whatsapp_message(from_number: str, message_body: str, db: Session) -> dict:
-    """Procesar mensaje de WhatsApp"""
+async def process_whatsapp_message(from_number: str, message_body: str, db: Session, use_ai: bool = True) -> dict:
+    """Procesar mensaje de WhatsApp con opción de usar IA"""
     if not from_number or not message_body:
         raise HTTPException(
             status_code=400,
@@ -29,7 +30,14 @@ async def process_whatsapp_message(from_number: str, message_body: str, db: Sess
 
     # Inicializar servicios
     whatsapp_service = WhatsAppService()
-    bot_service = BotService(db)
+    
+    # Elegir servicio de bot según configuración
+    if use_ai and settings.OPENAI_API_KEY:
+        bot_service = EnhancedBotService(db)
+        logger.info(f"🤖 Usando bot con IA para {from_number}")
+    else:
+        bot_service = BotService(db)
+        logger.info(f"🔧 Usando bot tradicional para {from_number}")
     
     try:
         # Procesar mensaje con el bot
