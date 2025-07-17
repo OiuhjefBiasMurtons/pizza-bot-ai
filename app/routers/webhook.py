@@ -7,6 +7,7 @@ from database.connection import get_db
 from app.services.whatsapp_service import WhatsAppService
 from app.services.bot_service import BotService
 from app.services.enhanced_bot_service import EnhancedBotService
+from app.services.bot_service_original import BotService as OriginalBotService
 from twilio.request_validator import RequestValidator
 from twilio.base.exceptions import TwilioRestException
 from config.settings import settings
@@ -34,7 +35,7 @@ async def process_whatsapp_message(from_number: str, message_body: str, db: Sess
     # Elegir servicio de bot según configuración
     if use_ai and settings.OPENAI_API_KEY:
         bot_service = EnhancedBotService(db)
-        logger.info(f"🤖 Usando bot con IA para {from_number}")
+        logger.info(f"� Usando bot inteligente (IA+tradicional) para {from_number}")
     else:
         bot_service = BotService(db)
         logger.info(f"🔧 Usando bot tradicional para {from_number}")

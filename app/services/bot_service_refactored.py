@@ -32,7 +32,7 @@ class BotService:
         self.info_handler = InfoHandler(db)
         
         # Estados de conversación
-        self._ESTADOS = {
+        self.ESTADOS = {
             'INICIO': 'inicio',
             'REGISTRO_NOMBRE': 'registro_nombre',
             'REGISTRO_DIRECCION': 'registro_direccion',
@@ -42,16 +42,6 @@ class BotService:
             'CONFIRMACION': 'confirmacion',
             'FINALIZADO': 'finalizado'
         }
-        
-        # Para compatibilidad con tests antiguos
-        self._conversaciones = {}
-    
-    @property
-    def ESTADOS(self):
-        """
-        Mantener ESTADOS como propiedad para compatibilidad
-        """
-        return self._ESTADOS
     
     async def process_message(self, numero_whatsapp: str, mensaje: str) -> str:
         """
@@ -153,18 +143,18 @@ class BotService:
         """
         Enrutar el mensaje al handler apropiado según el estado
         """
-        if estado_actual in [self._ESTADOS['INICIO']]:
+        if estado_actual in [self.ESTADOS['INICIO']]:
             return self._handle_registered_greeting(numero_whatsapp, cliente)
         
-        elif estado_actual in [self._ESTADOS['REGISTRO_NOMBRE'], self._ESTADOS['REGISTRO_DIRECCION']]:
+        elif estado_actual in [self.ESTADOS['REGISTRO_NOMBRE'], self.ESTADOS['REGISTRO_DIRECCION']]:
             result = self.registration_handler.handle_registration_flow(numero_whatsapp, mensaje)
             return result.get('response', 'Error en el proceso de registro')
         
-        elif estado_actual == self._ESTADOS['MENU']:
+        elif estado_actual == self.ESTADOS['MENU']:
             # Si es una selección de pizza en formato original, enviarlo al order_handler
             if self._is_pizza_selection(mensaje):
                 # Cambiar estado a PEDIDO y procesar
-                self.set_conversation_state(numero_whatsapp, self._ESTADOS['PEDIDO'])
+                self.set_conversation_state(numero_whatsapp, self.ESTADOS['PEDIDO'])
                 result = self.order_handler.handle_order_process(numero_whatsapp, mensaje)
                 return result.get('response', 'Error procesando pedido')
             else:
@@ -172,11 +162,11 @@ class BotService:
                 result = self.menu_handler.handle_menu(numero_whatsapp, mensaje)
                 return result.get('response', 'Error procesando menú')
         
-        elif estado_actual == self._ESTADOS['PEDIDO']:
+        elif estado_actual == self.ESTADOS['PEDIDO']:
             result = self.order_handler.handle_order_process(numero_whatsapp, mensaje)
             return result.get('response', 'Error procesando pedido')
         
-        elif estado_actual in [self._ESTADOS['DIRECCION'], self._ESTADOS['CONFIRMACION']]:
+        elif estado_actual in [self.ESTADOS['DIRECCION'], self.ESTADOS['CONFIRMACION']]:
             result = self.order_handler.handle_order_process(numero_whatsapp, mensaje)
             return result.get('response', 'Error procesando pedido')
         
@@ -190,7 +180,7 @@ class BotService:
         Manejar saludo para usuario registrado
         """
         # Establecer estado en menú
-        self.set_conversation_state(numero_whatsapp, self._ESTADOS['MENU'])
+        self.set_conversation_state(numero_whatsapp, self.ESTADOS['MENU'])
         
         greeting = f"¡Hola {cliente.nombre}! 🍕 Bienvenido a Pizza Express.\n\n"
         greeting += "🍕 *MENÚ PRINCIPAL*\n\n"
@@ -230,9 +220,9 @@ class BotService:
         ).first()
         
         if conv_state:
-            return getattr(conv_state, 'estado_actual', self._ESTADOS['INICIO'])
+            return getattr(conv_state, 'estado_actual', self.ESTADOS['INICIO'])
         
-        return self._ESTADOS['INICIO']
+        return self.ESTADOS['INICIO']
     
     def set_conversation_state(self, numero_whatsapp: str, estado: str):
         """
@@ -260,7 +250,7 @@ class BotService:
         ).first()
         
         if conv_state:
-            setattr(conv_state, 'estado_actual', self._ESTADOS['INICIO'])
+            setattr(conv_state, 'estado_actual', self.ESTADOS['INICIO'])
             setattr(conv_state, 'datos_temporales', None)
             self.db.commit()
             
@@ -293,31 +283,11 @@ class BotService:
         """
         Validar selección de pizza (para compatibilidad)
         """
-        return self._is_pizza_selection(input_text)
+        pizza_encontrada = self.order_handler._find_pizza_by_input(input_text)
+        return pizza_encontrada is not None
     
     def get_pizza_by_selection(self, input_text: str):
         """
         Obtener pizza por selección (para compatibilidad)
         """
-        if hasattr(self.order_handler, '_find_pizza_by_input'):
-            return self.order_handler._find_pizza_by_input(input_text)
-        return None
-    
-    # Métodos de compatibilidad para tests antiguos
-    def get_or_create_cliente(self, numero_whatsapp: str) -> Cliente:
-        """
-        Obtener o crear cliente (para compatibilidad con tests antiguos)
-        """
-        cliente = self.get_cliente(numero_whatsapp)
-        if not cliente:
-            cliente = Cliente(numero_whatsapp=numero_whatsapp)
-            self.db.add(cliente)
-            self.db.commit()
-        return cliente
-    
-    @property
-    def conversaciones(self):
-        """
-        Simulación de conversaciones para compatibilidad con tests
-        """
-        return self._conversaciones
+        return self.order_handler._find_pizza_by_input(input_text)

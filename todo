@@ -8,3 +8,10 @@ Si escriben a determinada hora mandar un mensaje dew que no hay servicio pero qu
 QUe pasa si escriben en 1 solo mensaje todo (ej: Hola, me mandas una pizza hawuaiana a esta direccion:L  asdladk)
 El pedir pizzas es por nombres, no por numeros (dame 2 pizzas hawuaianas medianas y grande de pepperoni)
 Agregar ingredientes
+
+
+Interfaz para trabajador que pueda ver pedidos y cambiar estado del pedido
+Tambien que pueda indicar cuando no hay un ingrediente y asi saber que pizzas no estas disponibles
+Que despues de terminado tiempo se reinicie el carrito de compras
+Que se pueda ver el historial de pedidos
+Que se pueda ver el historial de pedidos por usuario y por fecha
