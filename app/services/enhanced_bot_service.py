@@ -121,8 +121,8 @@ class EnhancedBotService:
             
         except Exception as e:
             logger.error(f"Error procesando con IA: {str(e)}")
-            # Fallback al flujo tradicional
-            return await self.process_with_traditional_flow(numero_whatsapp, mensaje, cliente)
+            # Intentar manejar solicitud parcial de pizza antes del fallback
+            return await self.handle_partial_pizza_request(numero_whatsapp, mensaje, cliente)
     
     async def handle_ai_response(self, numero_whatsapp: str, ai_response: Dict, cliente: Cliente) -> str:
         """
@@ -166,6 +166,60 @@ class EnhancedBotService:
             
         elif accion == 'reemplazar_pedido':
             await self.handle_reemplazar_pedido(numero_whatsapp, datos, cliente)
+    
+    async def handle_partial_pizza_request(self, numero_whatsapp: str, mensaje: str, cliente: Cliente) -> str:
+        """
+        Manejar solicitudes parciales de pizza cuando la IA falla
+        Por ejemplo: 'Dame una de pepperoni' sin especificar tamaño
+        """
+        
+        mensaje_lower = mensaje.lower()
+        
+        # Detectar solicitudes de pizza (patrones comunes)
+        pizza_keywords = ['dame', 'quiero', 'pide', 'pedime', 'solicito']
+        pizza_names = ['pepperoni', 'margarita', 'margherita', 'hawaiana', 'carnivora', 'carnicera', 'vegetariana']
+        
+        # Verificar si es una solicitud de pizza
+        is_pizza_request = any(keyword in mensaje_lower for keyword in pizza_keywords)
+        contains_pizza_name = any(name in mensaje_lower for name in pizza_names)
+        
+        if is_pizza_request and contains_pizza_name:
+            # Intentar encontrar la pizza solicitada
+            for name in pizza_names:
+                if name in mensaje_lower:
+                    # Buscar pizza en la base de datos
+                    pizza = self.db.query(Pizza).filter(
+                        Pizza.disponible == True,
+                        Pizza.nombre.ilike(f'%{name}%')
+                    ).first()
+                    
+                    if pizza:
+                        # Guardar pizza en contexto temporal
+                        self.set_temporary_value(numero_whatsapp, 'pizza_parcial', {
+                            'id': pizza.id,
+                            'nombre': pizza.nombre,
+                            'emoji': pizza.emoji or '🍕'
+                        })
+                        
+                        # Cambiar a estado de selección de tamaño
+                        self.set_conversation_state(numero_whatsapp, 'seleccion_tamano_pizza')
+                        
+                        return (f"¡Perfecto! Pizza {pizza.emoji or '🍕'} {pizza.nombre} 👍\n\n"
+                               f"¿Qué tamaño quieres?\n\n"
+                               f"💰 Precios:\n"
+                               f"• 1️⃣ Pequeña: ${pizza.precio_pequena:.2f}\n"
+                               f"• 2️⃣ Mediana: ${pizza.precio_mediana:.2f}\n"
+                               f"• 3️⃣ Grande: ${pizza.precio_grande:.2f}\n\n"
+                               f"Escribe el número o el nombre del tamaño:")
+            
+        # Si no es una solicitud de pizza válida, usar fallback tradicional
+        return await self.process_with_traditional_flow(numero_whatsapp, mensaje, cliente)
+    
+    #async def handle_reemplazar_pedido(self, numero_whatsapp: str, datos: Dict, cliente: Cliente):
+        """
+        Manejar reemplazo de pedido (funcionalidad existente)
+        """
+    #    pass  # TODO: Implementar según necesidad
     
     async def handle_ai_pizza_selection(self, numero_whatsapp: str, datos: Dict, cliente: Cliente):
         """
@@ -282,6 +336,9 @@ class EnhancedBotService:
         elif estado_actual == self.ESTADOS['MENU']:
             return await self.handle_seleccion_pizza(numero_whatsapp, mensaje, cliente)
         
+        elif estado_actual == 'seleccion_tamano_pizza':
+            return await self.handle_tamano_pizza_selection(numero_whatsapp, mensaje, cliente)
+        
         elif estado_actual == self.ESTADOS['PEDIDO']:
             return await self.handle_continuar_pedido(numero_whatsapp, mensaje, cliente)
         
@@ -293,6 +350,79 @@ class EnhancedBotService:
         
         else:
             return self.handle_registered_greeting(numero_whatsapp, cliente)
+    
+    async def handle_tamano_pizza_selection(self, numero_whatsapp: str, mensaje: str, cliente: Cliente) -> str:
+        """
+        Manejar selección de tamaño para pizza parcialmente solicitada
+        """
+        
+        mensaje_lower = mensaje.lower().strip()
+        
+        # Mapear opciones de tamaño
+        tamanos = {
+            '1': 'pequeña',
+            '2': 'mediana', 
+            '3': 'grande',
+            'pequeña': 'pequeña',
+            'pequena': 'pequeña',
+            'small': 'pequeña',
+            'chica': 'pequeña',
+            'mediana': 'mediana',
+            'medium': 'mediana',
+            'grande': 'grande',
+            'large': 'grande'
+        }
+        
+        if mensaje_lower not in tamanos:
+            return ("❓ Por favor, selecciona un tamaño válido:\n\n"
+                   "• 1️⃣ Pequeña\n• 2️⃣ Mediana\n• 3️⃣ Grande\n\n"
+                   "Escribe el número o el nombre del tamaño:")
+        
+        # Obtener pizza parcial del contexto temporal
+        pizza_parcial = self.get_temporary_value(numero_whatsapp, 'pizza_parcial')
+        if not pizza_parcial:
+            return await self.handle_menu(numero_whatsapp, cliente)
+        
+        # Obtener pizza completa de la BD
+        pizza = self.db.query(Pizza).filter(Pizza.id == pizza_parcial['id']).first()
+        if not pizza:
+            return await self.handle_menu(numero_whatsapp, cliente)
+        
+        # Obtener tamaño seleccionado y precio
+        tamano_seleccionado = tamanos[mensaje_lower]
+        precio = self.get_pizza_price(pizza, tamano_seleccionado)
+        
+        # Agregar al carrito
+        carrito = self.get_temporary_value(numero_whatsapp, 'carrito') or []
+        carrito.append({
+            'pizza_id': pizza.id,
+            'pizza_nombre': pizza.nombre,
+            'pizza_emoji': pizza.emoji or '🍕',
+            'tamano': tamano_seleccionado,
+            'precio': float(precio),
+            'cantidad': 1
+        })
+        
+        self.set_temporary_value(numero_whatsapp, 'carrito', carrito)
+        self.set_conversation_state(numero_whatsapp, self.ESTADOS['PEDIDO'])
+        
+        # Limpiar datos temporales
+        self.set_temporary_value(numero_whatsapp, 'pizza_parcial', None)
+        
+        # Calcular total
+        total = sum(item['precio'] * item.get('cantidad', 1) for item in carrito)
+        
+        return (f"✅ ¡Perfecto! Agregado al carrito:\n\n"
+               f"{pizza.emoji or '🍕'} {pizza.nombre} - {tamano_seleccionado.title()}\n"
+               f"💰 Precio: ${precio:.2f}\n\n"
+               f"🛒 **Carrito actual:**\n"
+               f"• {pizza.emoji or '🍕'} {pizza.nombre} - {tamano_seleccionado.title()} - ${precio:.2f}\n\n"
+               f"**Total: ${total:.2f}**\n\n"
+               f"¿Quieres agregar algo más?\n"
+               f"• Escribe el nombre de otra pizza\n"
+               f"• Escribe 'confirmar' para finalizar el pedido")
+    
+    # Métodos heredados del BotService original...
     
     # Métodos auxiliares (reutilizados del BotService original)
     def get_cliente(self, numero_whatsapp: str) -> Cliente:

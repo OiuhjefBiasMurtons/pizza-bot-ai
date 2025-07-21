@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Panel de Administración - PizzaBot{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        pizza: {
+                            50: '#fdf2f8',
+                            100: '#fce7f3',
+                            200: '#fbcfe8',
+                            300: '#f9a8d4',
+                            400: '#f472b6',
+                            500: '#ec4899',
+                            600: '#db2777',
+                            700: '#be185d',
+                            800: '#9d174d',
+                            900: '#831843',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body class="bg-gray-50 min-h-screen">
+    
+    <!-- Navigation -->
+    <nav class="bg-white shadow-lg border-b border-gray-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <div class="flex-shrink-0">
+                        <h1 class="text-2xl font-bold text-gray-900">
+                            <i class="fas fa-pizza-slice text-red-500 mr-2"></i>
+                            PizzaBot Admin
+                        </h1>
+                    </div>
+                    <div class="hidden md:ml-10 md:flex md:space-x-8">
+                        <a href="/admin/" class="{% if request.url.path == '/admin/' %}border-red-500 text-gray-900{% else %}border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700{% endif %} inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
+                            <i class="fas fa-tachometer-alt mr-2"></i>
+                            Dashboard
+                        </a>
+                        <a href="/admin/pedidos" class="{% if '/admin/pedidos' in request.url.path %}border-red-500 text-gray-900{% else %}border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700{% endif %} inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
+                            <i class="fas fa-list-ul mr-2"></i>
+                            Todos los Pedidos
+                        </a>
+                    </div>
+                </div>
+                <div class="flex items-center">
+                    <div class="flex-shrink-0">
+                        <span class="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded-full">
+                            <i class="fas fa-circle text-green-500 mr-1"></i>
+                            Sistema Activo
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Mobile menu -->
+    <div class="md:hidden bg-white border-b border-gray-200">
+        <div class="px-2 pt-2 pb-3 space-y-1 sm:px-3">
+            <a href="/admin/" class="{% if request.url.path == '/admin/' %}bg-red-50 border-red-500 text-red-700{% else %}text-gray-600 hover:bg-gray-50 hover:text-gray-900{% endif %} block px-3 py-2 rounded-md text-base font-medium border-l-4">
+                <i class="fas fa-tachometer-alt mr-2"></i>
+                Dashboard
+            </a>
+            <a href="/admin/pedidos" class="{% if '/admin/pedidos' in request.url.path %}bg-red-50 border-red-500 text-red-700{% else %}text-gray-600 hover:bg-gray-50 hover:text-gray-900{% endif %} block px-3 py-2 rounded-md text-base font-medium border-l-4">
+                <i class="fas fa-list-ul mr-2"></i>
+                Todos los Pedidos
+            </a>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Scripts -->
+    <script>
+        // Función para cambiar estado de pedido
+        async function cambiarEstado(pedidoId, nuevoEstado) {
+            if (!confirm(`¿Estás seguro de cambiar el estado a "${nuevoEstado}"?`)) {
+                return;
+            }
+            
+            try {
+                const formData = new FormData();
+                formData.append('nuevo_estado', nuevoEstado);
+                
+                const response = await fetch(`/admin/pedido/${pedidoId}/estado`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (response.ok) {
+                    location.reload(); // Recargar la página para ver los cambios
+                } else {
+                    const errorData = await response.json();
+                    alert(`Error: ${errorData.detail}`);
+                }
+            } catch (error) {
+                alert(`Error de conexión: ${error.message}`);
+            }
+        }
+        
+        // Event listeners para botones de cambio de estado
+        document.addEventListener('DOMContentLoaded', function() {
+            // Agregar event listeners a todos los botones con data-estado
+            document.querySelectorAll('[data-estado]').forEach(button => {
+                button.addEventListener('click', function() {
+                    const pedidoId = this.getAttribute('data-pedido-id');
+                    const nuevoEstado = this.getAttribute('data-estado');
+                    cambiarEstado(pedidoId, nuevoEstado);
+                });
+            });
+        });
+        
+         //Auto-refresh cada 30 segundos (comentado temporalmente)
+         setInterval(() => {
+             location.reload();
+         }, 30000);
+    </script>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

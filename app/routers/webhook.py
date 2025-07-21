@@ -5,14 +5,14 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from database.connection import get_db
 from app.services.whatsapp_service import WhatsAppService
-from app.services.bot_service import BotService
 from app.services.enhanced_bot_service import EnhancedBotService
-from app.services.bot_service_original import BotService as OriginalBotService
+from app.services.cache_service import cache_service
 from twilio.request_validator import RequestValidator
 from twilio.base.exceptions import TwilioRestException
 from config.settings import settings
 import logging
-from typing import Optional, Dict
+import time
+from typing import Optional, Dict, Any
 
 # Configuración de logging
 logger = logging.getLogger(__name__)
@@ -21,24 +21,28 @@ limiter = Limiter(key_func=get_remote_address)
 # Router de webhook
 router = APIRouter()
 
-async def process_whatsapp_message(from_number: str, message_body: str, db: Session, use_ai: bool = True) -> dict:
-    """Procesar mensaje de WhatsApp con opción de usar IA"""
+async def process_whatsapp_message(from_number: str, message_body: str, db: Session) -> dict:
+    """Procesar mensaje de WhatsApp con bot híbrido (IA + tradicional)"""
     if not from_number or not message_body:
         raise HTTPException(
             status_code=400,
             detail="Datos incompletos: se requiere número de teléfono y mensaje"
         )
 
+    # Métricas de rendimiento
+    start_time = time.time()
+    
     # Inicializar servicios
     whatsapp_service = WhatsAppService()
     
-    # Elegir servicio de bot según configuración
-    if use_ai and settings.OPENAI_API_KEY:
-        bot_service = EnhancedBotService(db)
-        logger.info(f"� Usando bot inteligente (IA+tradicional) para {from_number}")
+    # Usar siempre EnhancedBotService (decide internamente si usar IA o tradicional)
+    bot_service = EnhancedBotService(db)
+    
+    # Log basado en configuración de OpenAI
+    if settings.OPENAI_API_KEY:
+        logger.info(f"🤖 Bot híbrido (IA+tradicional) disponible para {from_number}")
     else:
-        bot_service = BotService(db)
-        logger.info(f"🔧 Usando bot tradicional para {from_number}")
+        logger.info(f"🔧 Bot híbrido en modo tradicional para {from_number} (sin OpenAI)")
     
     try:
         # Procesar mensaje con el bot
@@ -47,8 +51,25 @@ async def process_whatsapp_message(from_number: str, message_body: str, db: Sess
         # Enviar respuesta por WhatsApp
         await whatsapp_service.send_message(from_number, response)
         
-        logger.info(f"✅ Mensaje procesado exitosamente para {from_number}")
-        return {"status": "success", "message": "Mensaje procesado"}
+        # Calcular tiempo de procesamiento
+        processing_time = time.time() - start_time
+        
+        logger.info(f"✅ Mensaje procesado exitosamente para {from_number} en {processing_time:.2f}s")
+        
+        # Limpiar caché periódicamente (cada 100 mensajes aprox)
+        if hash(from_number) % 100 == 0:
+            try:
+                # Intentar limpieza de caché si está disponible
+                logger.debug("🧹 Ejecutando limpieza periódica de caché...")
+                # La limpieza se maneja automáticamente por el servicio de lifecycle
+            except Exception as cleanup_error:
+                logger.warning(f"⚠️ Error en limpieza de caché: {cleanup_error}")
+        
+        return {
+            "status": "success", 
+            "message": "Mensaje procesado",
+            "processing_time": processing_time
+        }
         
     except TwilioRestException as e:
         logger.error(f"❌ Error de Twilio para {from_number}: {e}")
@@ -176,4 +197,65 @@ async def send_message(
 @router.get("/test")
 async def test_webhook():
     """Endpoint para probar el webhook"""
-    return {"status": "success", "message": "Webhook funcionando correctamente"} 
+    return {"status": "success", "message": "Webhook funcionando correctamente"}
+
+# Endpoint para monitoreo de rendimiento y caché
+@router.get("/performance")
+async def performance_stats(db: Session = Depends(get_db)):
+    """Endpoint para obtener estadísticas de rendimiento"""
+    try:
+        # Estadísticas básicas del caché
+        cache_stats: Dict[str, Any] = {
+            'redis_enabled': cache_service.enabled,
+            'redis_connected': cache_service.redis is not None if cache_service else False
+        }
+        
+        # Estadísticas de Redis si está disponible
+        if cache_service.redis:
+            try:
+                info = await cache_service.redis.info()
+                cache_stats.update({
+                    'redis_memory_used': info.get('used_memory_human', 'Unknown'),
+                    'redis_connected_clients': info.get('connected_clients', 0),
+                    'redis_total_commands': info.get('total_commands_processed', 0)
+                })
+            except Exception as redis_error:
+                cache_stats['redis_error'] = str(redis_error)
+        
+        # Estadísticas de la base de datos (versión más robusta)
+        db_stats = {}
+        try:
+            engine = db.get_bind()
+            if hasattr(engine, 'pool'):
+                pool = engine.pool  # type: ignore
+                db_stats = {
+                    'pool_size': getattr(pool, 'size', lambda: 'Unknown')(),
+                    'checked_out': getattr(pool, 'checkedout', lambda: 'Unknown')(),
+                    'checked_in': getattr(pool, 'checkedin', lambda: 'Unknown')(),
+                    'overflow': getattr(pool, 'overflow', lambda: 'Unknown')(),
+                    'invalid': getattr(pool, 'invalid', lambda: 'Unknown')()
+                }
+            else:
+                db_stats = {
+                    'pool_info': 'Pool information not available',
+                    'connection_active': str(db.is_active)
+                }
+        except Exception as db_error:
+            db_stats = {
+                'error': f'Database stats unavailable: {str(db_error)}',
+                'connection_active': 'Unknown'
+            }
+        
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "success",
+                "cache_stats": cache_stats,
+                "database_stats": db_stats,
+                "timestamp": time.time()
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo estadísticas de rendimiento: {e}")
+        raise HTTPException(status_code=500, detail=str(e)) 

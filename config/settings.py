@@ -7,6 +7,10 @@ class Settings:
     # Database
     DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://usuario:password@localhost:5432/pizzabot_db")
     
+    # Redis (para caché de conversaciones)
+    REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    REDIS_ENABLED = os.getenv("REDIS_ENABLED", "True").lower() == "true"
+    
     # Twilio
     TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
     TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")

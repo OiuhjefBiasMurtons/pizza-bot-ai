@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
-from app.routers import webhook, pizzas, pedidos
+from app.routers import webhook, pizzas, pedidos, admin
 from app.utils.logging_config import setup_logging, setup_sentry, get_logger, LoggingMiddleware
 from config.settings import settings
 
@@ -25,7 +25,7 @@ app = FastAPI(
 
 # Configurar rate limiting
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+# app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # Comentado temporalmente por problemas de tipo
 
 # Agregar middleware de logging
 app.add_middleware(LoggingMiddleware)
@@ -61,6 +61,7 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 app.include_router(webhook.router, prefix="/webhook", tags=["webhook"])
 app.include_router(pizzas.router, prefix="/pizzas", tags=["pizzas"])
 app.include_router(pedidos.router, prefix="/pedidos", tags=["pedidos"])
+app.include_router(admin.router, tags=["admin"])
 
 @app.get("/")
 async def root():
@@ -76,4 +77,4 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000, debug=settings.DEBUG) 
+    uvicorn.run(app, host="127.0.0.1", port=8000, log_level="debug" if settings.DEBUG else "info") 

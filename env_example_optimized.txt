@@ -1,0 +1,39 @@
+# Base de datos
+DATABASE_URL=postgresql://usuario:password@localhost:5432/pizzabot_db
+
+# Redis para caché (opcional pero recomendado para rendimiento)
+REDIS_URL=redis://localhost:6379/0
+REDIS_ENABLED=True
+
+# Twilio
+TWILIO_ACCOUNT_SID=your_account_sid_here
+TWILIO_AUTH_TOKEN=your_auth_token_here
+TWILIO_PHONE_NUMBER=+1234567890
+
+# OpenAI para funcionalidad de IA
+OPENAI_API_KEY=sk-your-api-key-here
+
+# Configuración de la aplicación
+SECRET_KEY=your-secret-key-here
+DEBUG=True
+
+# URL de desarrollo (para webhooks)
+NGROK_URL=https://your-ngrok-url.ngrok.io
+
+# Sentry para monitoreo en producción (opcional)
+SENTRY_DSN=https://your-sentry-dsn-here
+
+# === OPTIMIZACIONES DE RENDIMIENTO ===
+# Configuraciones opcionales para mejorar rendimiento
+
+# Pool de conexiones de base de datos (ya configurado automáticamente)
+DB_POOL_SIZE=10
+DB_MAX_OVERFLOW=20
+DB_POOL_RECYCLE=3600
+
+# Caché de conversaciones
+CONVERSATION_CACHE_TTL=1800  # 30 minutos en segundos
+CLEANUP_INTERVAL=3600        # 1 hora en segundos
+
+# Logging
+LOG_LEVEL=INFO

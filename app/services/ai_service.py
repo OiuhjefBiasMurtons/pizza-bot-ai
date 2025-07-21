@@ -265,7 +265,6 @@ IMPORTANTE: Cuando el usuario dice "Solo quiero X" significa que quiere REEMPLAZ
             logger.error(f"Error obteniendo contexto del cliente: {str(e)}")
             return "Información del cliente no disponible."
     
-    # Procesar mensaje con IA y determinar la acción apropiada
     async def process_with_ai(self, 
                             numero_whatsapp: str, 
                             mensaje: str, 
@@ -518,6 +517,10 @@ IMPORTANTE: Cuando el usuario dice "Solo quiero X" significa que quiere REEMPLAZ
         """
         Determinar si usar IA o el flujo tradicional
         """
+        
+        # Validar que el mensaje no sea None o vacío
+        if not mensaje or not isinstance(mensaje, str):
+            return False
         
         # Comandos simples que no requieren IA
         comandos_simples = [

@@ -199,6 +199,7 @@ class OrderHandler(BaseHandler):
         if respuesta in ['1', 'usar mi dirección', 'mi dirección', 'registrada']:
             # Usar dirección registrada
             direccion_entrega = usuario.direccion
+            logger.info(f"🏠 DEBUG - Usando dirección registrada: '{direccion_entrega}'")
             
         elif respuesta in ['2', 'diferente', 'otra dirección', 'cambiar dirección']:
             # Pedir nueva dirección
@@ -218,6 +219,7 @@ class OrderHandler(BaseHandler):
                 }
             
             direccion_entrega = mensaje.strip()
+            logger.info(f"🏠 DEBUG - Usando dirección nueva: '{direccion_entrega}'")
             self.set_temporary_value(numero_whatsapp, 'esperando_nueva_direccion', False)
             
         else:
@@ -227,6 +229,7 @@ class OrderHandler(BaseHandler):
             }
         
         # Guardar dirección y continuar
+        logger.info(f"💾 DEBUG - Guardando dirección en temporal: '{direccion_entrega}'")
         self.set_temporary_value(numero_whatsapp, 'direccion_entrega', direccion_entrega)
         self.set_temporary_value(numero_whatsapp, 'estado_pedido', 'confirmacion_final')
         
@@ -363,13 +366,33 @@ class OrderHandler(BaseHandler):
             tamano = self.get_temporary_value(numero_whatsapp, 'tamano_seleccionado')
             direccion = self.get_temporary_value(numero_whatsapp, 'direccion_entrega')
             
+            # Debug logging
+            logger.info(f"🏠 DEBUG - Creando pedido para {numero_whatsapp}")
+            logger.info(f"🏠 DEBUG - Dirección obtenida: '{direccion}'")
+            logger.info(f"🍕 DEBUG - Pizza: {pizza_data}")
+            logger.info(f"📊 DEBUG - Cantidad: {cantidad}, Tamaño: {tamano}")
+            
             if not all([pizza_data, cantidad, tamano, direccion]):
+                logger.warning(f"❌ DEBUG - Datos incompletos: pizza={bool(pizza_data)}, cantidad={bool(cantidad)}, tamano={bool(tamano)}, direccion={bool(direccion)}")
                 return {
                     'success': False,
                     'response': "❌ Error: datos incompletos del pedido."
                 }
             
             # Validar que pizza_data no sea None
+            # Debug logging
+            logger.info(f"🏠 DEBUG - Creando pedido para {numero_whatsapp}")
+            logger.info(f"🏠 DEBUG - Dirección obtenida: '{direccion}'")
+            logger.info(f"🍕 DEBUG - Pizza: {pizza_data}")
+            logger.info(f"📊 DEBUG - Cantidad: {cantidad}, Tamaño: {tamano}")
+            
+            if not all([pizza_data, cantidad, tamano, direccion]):
+                logger.warning(f"❌ DEBUG - Datos incompletos: pizza={bool(pizza_data)}, cantidad={bool(cantidad)}, tamano={bool(tamano)}, direccion={bool(direccion)}")
+                return {
+                    'success': False,
+                    'response': "❌ Error: datos incompletos del pedido."
+                }
+            
             if not pizza_data or not isinstance(pizza_data, dict):
                 return {
                     'success': False,
@@ -379,17 +402,27 @@ class OrderHandler(BaseHandler):
             # Obtener precio según tamaño
             precio_key = f'precio_{tamano}'
             precio_unitario = pizza_data.get(precio_key, 0)
+            precio_total = precio_unitario * cantidad
+            
+            logger.info(f"💰 DEBUG - Precio unitario: {precio_unitario}, Total: {precio_total}")
             
             # Crear pedido
+            from datetime import datetime
             nuevo_pedido = Pedido(
                 cliente_id=usuario.id,
+                fecha_pedido=datetime.now(),
                 direccion_entrega=direccion,
+                telefono_contacto=numero_whatsapp,
                 estado='pendiente',
-                total=precio_unitario * cantidad
+                total=precio_total
             )
+            
+            logger.info(f"🏗️ DEBUG - Creando pedido con dirección: '{nuevo_pedido.direccion_entrega}'")
             
             self.db.add(nuevo_pedido)
             self.db.flush()  # Para obtener el ID del pedido
+            
+            logger.info(f"✅ DEBUG - Pedido creado con ID: {nuevo_pedido.id}, dirección guardada: '{nuevo_pedido.direccion_entrega}'")
             
             # Crear detalle del pedido
             detalle = DetallePedido(
@@ -398,7 +431,7 @@ class OrderHandler(BaseHandler):
                 tamano=tamano,
                 cantidad=cantidad,
                 precio_unitario=precio_unitario,
-                subtotal=precio_unitario * cantidad
+                subtotal=precio_total
             )
             
             self.db.add(detalle)

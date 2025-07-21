@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+
+{% block title %}Todos los Pedidos - PizzaBot Admin{% endblock %}
+
+{% block content %}
+<div class="px-4 sm:px-6 lg:px-8">
+    <!-- Header -->
+    <div class="sm:flex sm:items-center mb-6">
+        <div class="sm:flex-auto">
+            <h1 class="text-3xl font-bold text-gray-900">Todos los Pedidos</h1>
+            <p class="mt-2 text-sm text-gray-700">
+                Historial completo y gestión de pedidos
+            </p>
+        </div>
+    </div>
+
+    <!-- Filtros -->
+    <div class="bg-white rounded-lg shadow-sm p-4 mb-6">
+        <div class="flex flex-wrap items-center space-x-4">
+            <span class="text-sm font-medium text-gray-700">Filtrar por estado:</span>
+            <div class="flex flex-wrap gap-2">
+                <a href="/admin/pedidos" class="{% if not estado_filtro %}bg-red-100 text-red-800 border-red-200{% else %}bg-white text-gray-600 border-gray-300 hover:bg-gray-50{% endif %} inline-flex items-center px-3 py-1 border rounded-full text-sm font-medium transition-colors duration-200">
+                    <i class="fas fa-list mr-1"></i>
+                    Todos
+                </a>
+                {% for estado in estados_disponibles %}
+                    <a href="/admin/pedidos?estado={{ estado }}" class="inline-flex items-center px-3 py-1 border rounded-full text-sm font-medium transition-colors duration-200 
+                        {% if estado_filtro == estado %}
+                            {% if estado == 'pendiente' %} bg-yellow-100 text-yellow-800 border-yellow-200{% elif estado == 'confirmado' %} bg-blue-100 text-blue-800 border-blue-200{% elif estado == 'preparando' %} bg-orange-100 text-orange-800 border-orange-200{% elif estado == 'enviado' %} bg-purple-100 text-purple-800 border-purple-200{% elif estado == 'entregado' %} bg-green-100 text-green-800 border-green-200{% else %} bg-red-100 text-red-800 border-red-200{% endif %}
+                        {% else %} bg-white text-gray-600 border-gray-300 hover:bg-gray-50{% endif %}">
+                        <i class="fas mr-1
+                            {% if estado == 'pendiente' %} fa-clock{% elif estado == 'confirmado' %} fa-check-circle{% elif estado == 'preparando' %} fa-fire{% elif estado == 'enviado' %} fa-truck{% elif estado == 'entregado' %} fa-check-double{% else %} fa-times-circle{% endif %}"></i>
+                        {{ estado.title() }}
+                    </a>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Lista de Pedidos -->
+    <div class="bg-white shadow rounded-lg overflow-hidden">
+        {% if pedidos %}
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Pedido
+                            </th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Cliente
+                            </th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Estado
+                            </th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Total
+                            </th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Fecha
+                            </th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Acciones
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        {% for pedido in pedidos %}
+                            <tr class="hover:bg-gray-50 transition-colors duration-200">
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <div class="flex items-center">
+                                        <div class="flex-shrink-0">
+                                            <span class="inline-flex items-center justify-center h-8 w-8 rounded-full bg-red-100 text-red-800 font-medium text-sm">
+                                                #{{ pedido.id }}
+                                            </span>
+                                        </div>
+                                        <div class="ml-3">
+                                            <div class="text-sm font-medium text-gray-900">
+                                                Pedido #{{ pedido.id }}
+                                            </div>
+                                            <div class="text-sm text-gray-500">
+                                                {{ pedido.items_count }} item{{ "s" if pedido.items_count > 1 else "" }}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <div class="text-sm font-medium text-gray-900">{{ pedido.cliente_nombre }}</div>
+                                    <div class="text-sm text-gray-500">
+                                        <i class="fab fa-whatsapp mr-1"></i>
+                                        {{ pedido.cliente_whatsapp }}
+                                    </div>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+                                        {% if pedido.estado == 'pendiente' %} bg-yellow-100 text-yellow-800{% elif pedido.estado == 'confirmado' %} bg-blue-100 text-blue-800{% elif pedido.estado == 'preparando' %} bg-orange-100 text-orange-800{% elif pedido.estado == 'enviado' %} bg-purple-100 text-purple-800{% elif pedido.estado == 'entregado' %} bg-green-100 text-green-800{% else %} bg-red-100 text-red-800{% endif %}">
+                                        <i class="fas mr-1
+                                            {% if pedido.estado == 'pendiente' %} fa-clock{% elif pedido.estado == 'confirmado' %} fa-check-circle{% elif pedido.estado == 'preparando' %} fa-fire{% elif pedido.estado == 'enviado' %} fa-truck{% elif pedido.estado == 'entregado' %} fa-check-double{% else %} fa-times-circle{% endif %}"></i>
+                                        {{ pedido.estado.title() }}
+                                    </span>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <div class="text-sm font-bold text-gray-900">${{ "%.2f"|format(pedido.total) }}</div>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                    <div>{{ pedido.fecha_pedido.strftime('%d/%m/%Y') }}</div>
+                                    <div class="text-xs">{{ pedido.fecha_pedido.strftime('%H:%M') }}</div>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                    <div class="flex items-center space-x-2">
+                                        <!-- Estados disponibles -->
+                                        <div class="relative group">
+                                            <button class="inline-flex items-center px-2 py-1 border border-gray-300 rounded text-xs text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500">
+                                                <i class="fas fa-edit mr-1"></i>
+                                                Estado
+                                            </button>
+                                            <div class="absolute right-0 z-10 mt-2 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 hidden group-hover:block">
+                                                <div class="py-1">
+                                                    {% for estado in estados_disponibles %}
+                                                        {% if estado != pedido.estado %}
+                                                            <button data-pedido-id="{{ pedido.id }}" data-estado="{{ estado }}" class="group flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
+                                                                <i class="fas mr-2 text-gray-400
+                                                                    {% if estado == 'pendiente' %} fa-clock{% elif estado == 'confirmado' %} fa-check-circle{% elif estado == 'preparando' %} fa-fire{% elif estado == 'enviado' %} fa-truck{% elif estado == 'entregado' %} fa-check-double{% else %} fa-times-circle{% endif %}"></i>
+                                                                {{ estado.title() }}
+                                                            </button>
+                                                        {% endif %}
+                                                    {% endfor %}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <a href="/admin/pedido/{{ pedido.id }}" class="inline-flex items-center px-2 py-1 border border-transparent rounded text-xs text-red-600 bg-red-100 hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500">
+                                            <i class="fas fa-eye mr-1"></i>
+                                            Ver
+                                        </a>
+                                    </div>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="text-center py-12">
+                <i class="fas fa-pizza-slice text-6xl text-gray-300 mb-4"></i>
+                <h3 class="text-lg font-medium text-gray-900 mb-2">
+                    {% if estado_filtro %}
+                        No hay pedidos con estado "{{ estado_filtro }}"
+                    {% else %}
+                        No hay pedidos registrados
+                    {% endif %}
+                </h3>
+                <p class="text-gray-500">
+                    {% if estado_filtro %}
+                        Prueba con otro filtro o revisa todos los pedidos.
+                    {% else %}
+                        Los pedidos aparecerán aquí cuando lleguen a través del bot.
+                    {% endif %}
+                </p>
+                {% if estado_filtro %}
+                    <div class="mt-4">
+                        <a href="/admin/pedidos" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-red-600 bg-red-100 hover:bg-red-200">
+                            <i class="fas fa-list mr-2"></i>
+                            Ver Todos los Pedidos
+                        </a>
+                    </div>
+                {% endif %}
+            </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

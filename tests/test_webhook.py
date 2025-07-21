@@ -11,7 +11,7 @@ import asyncio
 async def test_webhook_whatsapp_form(client):
     """Test webhook handling via form data"""
     with patch('app.routers.webhook.WhatsAppService') as mock_whatsapp, \
-         patch('app.routers.webhook.BotService') as mock_bot:
+         patch('app.routers.webhook.EnhancedBotService') as mock_bot:
         
         # Configurar mocks
         mock_bot_instance = Mock()
@@ -37,7 +37,7 @@ async def test_webhook_whatsapp_form(client):
 async def test_webhook_whatsapp_json(client):
     """Test webhook handling via JSON"""
     with patch('app.routers.webhook.WhatsAppService') as mock_whatsapp, \
-         patch('app.routers.webhook.BotService') as mock_bot:
+         patch('app.routers.webhook.EnhancedBotService') as mock_bot:
         
         # Configurar mocks
         mock_bot_instance = Mock()
@@ -63,7 +63,7 @@ async def test_webhook_whatsapp_json(client):
 async def test_webhook_whatsapp_error_handling(client):
     """Test webhook error handling"""
     with patch('app.routers.webhook.WhatsAppService') as mock_whatsapp, \
-         patch('app.routers.webhook.BotService') as mock_bot:
+         patch('app.routers.webhook.EnhancedBotService') as mock_bot:
         
         # Simular error en el procesamiento
         mock_bot_instance = Mock()
