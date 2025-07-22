@@ -16,3 +16,10 @@ Que despues de terminado tiempo se reinicie el carrito de compras
 Que se pueda ver el historial de pedidos
 Que se pueda ver el historial de pedidos por usuario y por fecha
 Cuando se 
+
+-------------
+
+FRONTEND
+Que aparezcan los pedidos del dia.
+Se resetean pedidos al finalizar el dia
+Que se pueda ver el historial de pedidos

@@ -9,6 +9,7 @@ from app.models.pedido import Pedido, DetallePedido
 from app.models.conversation_state import ConversationState
 from app.services.pedido_service import PedidoService
 from app.services.ai_service import AIService
+from app.services.ambiguity_resolver import AmbiguityResolver
 import re
 import logging
 import json
@@ -27,6 +28,7 @@ class EnhancedBotService:
         self.db = db
         self.pedido_service = PedidoService(db)
         self.ai_service = AIService(db)
+        self.ambiguity_resolver = AmbiguityResolver()
         
         # Estados de conversación
         self.ESTADOS = {
@@ -46,6 +48,9 @@ class EnhancedBotService:
             'menu', 'menú', 'carta', 'ayuda', 'help',
             'pedido', 'mis pedidos', 'estado'
         ]
+        
+        # Almacenar el último mensaje del bot para contexto
+        self.last_bot_messages = {}
     
     async def process_message(self, numero_whatsapp: str, mensaje: str) -> str:
         """
@@ -101,6 +106,166 @@ class EnhancedBotService:
         
         # Para preguntas complejas, modificaciones, o lenguaje natural, usar IA
         return True
+    
+    def _store_last_bot_message(self, numero_whatsapp: str, message: str):
+        """Almacenar el último mensaje del bot para contexto"""
+        self.last_bot_messages[numero_whatsapp] = message
+    
+    def _get_last_bot_message(self, numero_whatsapp: str) -> str:
+        """Obtener el último mensaje del bot"""
+        return self.last_bot_messages.get(numero_whatsapp, "")
+    
+    def _send_response_with_context(self, numero_whatsapp: str, response: str) -> str:
+        """Enviar respuesta y almacenar para contexto futuro"""
+        self._store_last_bot_message(numero_whatsapp, response)
+        return response
+    
+    async def _handle_ambiguous_message(self, 
+                                  numero_whatsapp: str, 
+                                  mensaje: str, 
+                                  cliente: Cliente, 
+                                  current_state: str) -> Optional[str]:
+        """
+        Manejar mensajes ambiguos usando el AmbiguityResolver
+        """
+        last_bot_message = self._get_last_bot_message(numero_whatsapp)
+        context = {
+            'state': current_state,
+            'carrito': self.get_temporary_value(numero_whatsapp, 'carrito'),
+            'direccion': self.get_temporary_value(numero_whatsapp, 'direccion'),
+            'cliente': cliente
+        }
+        
+        # Resolver el mensaje ambiguo
+        resolution = self.ambiguity_resolver.resolve_ambiguous_message(
+            message=mensaje,
+            last_bot_message=last_bot_message,
+            conversation_state=current_state,
+            context=context
+        )
+        
+        logger.info(f"🔍 Ambiguity resolution: {resolution}")
+        
+        # Si se resolvió con alta confianza, actuar en consecuencia
+        if resolution['confidence'] >= 0.7:
+            intent = resolution['intent']
+            
+            if intent == 'confirm':
+                if current_state == self.ESTADOS['PEDIDO']:
+                    # Usuario quiere confirmar/continuar con el pedido
+                    return self._proceed_to_address_or_confirmation(numero_whatsapp, cliente)
+                elif current_state == self.ESTADOS['CONFIRMACION']:
+                    # Usuario confirma el pedido final
+                    return await self.handle_confirmacion(numero_whatsapp, "confirmar", cliente)
+                elif current_state == self.ESTADOS['DIRECCION']:
+                    # Usuario confirma usar dirección registrada
+                    return await self.handle_direccion(numero_whatsapp, "si", cliente)
+            
+            elif intent == 'deny':
+                if current_state == self.ESTADOS['CONFIRMACION']:
+                    return self._send_response_with_context(
+                        numero_whatsapp,
+                        "Pedido cancelado. ¿Te gustaría hacer otro pedido? 🍕"
+                    )
+                elif current_state == self.ESTADOS['DIRECCION']:
+                    return self._send_response_with_context(
+                        numero_whatsapp,
+                        "Por favor, ingresa tu nueva dirección de entrega:\n\n"
+                        "Asegúrate de incluir calle, número, ciudad y código postal."
+                    )
+            
+            elif intent == 'cancel':
+                self.clear_conversation_data(numero_whatsapp)
+                self.set_conversation_state(numero_whatsapp, self.ESTADOS['INICIO'])
+                return self._send_response_with_context(
+                    numero_whatsapp,
+                    "Pedido cancelado. ¡Esperamos verte pronto! 👋\n\n"
+                    "Escribe 'menú' cuando quieras hacer un nuevo pedido."
+                )
+            
+            elif intent == 'finish':
+                if current_state == self.ESTADOS['PEDIDO']:
+                    return self._proceed_to_address_or_confirmation(numero_whatsapp, cliente)
+            
+            elif intent == 'add_more':
+                if current_state == self.ESTADOS['PEDIDO']:
+                    return self._send_response_with_context(
+                        numero_whatsapp,
+                        "¿Qué pizza más te gustaría agregar? 🍕\n\n"
+                        "Escribe el nombre de la pizza o su número del menú."
+                    )
+        
+        # Si se resolvió con confianza media, pedir clarificación pero sugerir
+        elif resolution['confidence'] >= 0.5:
+            suggestion = resolution.get('suggestion', '')
+            return self._send_response_with_context(
+                numero_whatsapp,
+                f"Creo que entiendo lo que quieres decir, pero permíteme confirmarlo:\n\n{suggestion}"
+            )
+        
+        # Si no se pudo resolver, pedir clarificación específica
+        else:
+            return await self._handle_unclear_message_with_guidance(numero_whatsapp, mensaje, current_state, context)
+    
+    def _proceed_to_address_or_confirmation(self, numero_whatsapp: str, cliente: Cliente) -> str:
+        """Proceder a dirección o confirmación según corresponda"""
+        # Si el cliente tiene dirección registrada, mostrarla y preguntar si quiere usarla
+        if cliente.direccion is not None and cliente.direccion.strip():
+            self.set_conversation_state(numero_whatsapp, self.ESTADOS['DIRECCION'])
+            return self._send_response_with_context(
+                numero_whatsapp,
+                f"Perfecto! 🎉\n\n"
+                f"¿Deseas usar tu dirección registrada?\n\n"
+                f"📍 {cliente.direccion}\n\n"
+                f"• Escribe 'sí' para usar esta dirección\n"
+                f"• Escribe 'no' para ingresar otra dirección"
+            )
+        else:
+            # Si no tiene dirección registrada, pedirla
+            self.set_conversation_state(numero_whatsapp, self.ESTADOS['DIRECCION'])
+            return self._send_response_with_context(
+                numero_whatsapp,
+                "Perfecto! 🎉\n\n"
+                "Por favor, envía tu dirección de entrega:"
+            )
+    
+    async def _handle_unclear_message_with_guidance(self, 
+                                              numero_whatsapp: str, 
+                                              mensaje: str, 
+                                              current_state: str, 
+                                              context: Dict) -> str:
+        """
+        Manejar mensajes que no se pudieron resolver, proporcionando guía específica
+        """
+        # Verificar si es solo emojis
+        if self.ambiguity_resolver.is_emoji_only_message(mensaje):
+            emoji_result = self.ambiguity_resolver.interpret_emoji_response(mensaje, context)
+            if emoji_result['confidence'] > 0.7:
+                # Recursivamente manejar la interpretación del emoji
+                return await self._handle_ambiguous_message(numero_whatsapp, emoji_result['intent'], context['cliente'], current_state) or ""
+        
+        # Generar respuesta de clarificación contextual
+        suggestions = self.ambiguity_resolver.suggest_response_alternatives(mensaje, {'state': current_state})
+        
+        clarification = f"No estoy seguro de entender '{mensaje}'. "
+        
+        # Agregar contexto específico
+        if current_state == self.ESTADOS['PEDIDO']:
+            carrito = context.get('carrito', [])
+            if carrito:
+                total = sum(item['precio'] * item.get('cantidad', 1) for item in carrito)
+                clarification += f"\n\n📋 *Tu pedido actual:*\n"
+                for item in carrito:
+                    emoji = item.get('pizza_emoji', '🍕')
+                    cantidad = item.get('cantidad', 1)
+                    clarification += f"• {emoji} {item['pizza_nombre']} - {item['tamano'].title()} x{cantidad}\n"
+                clarification += f"\n*Total: ${total:.2f}*\n"
+        
+        clarification += "\n🤔 ¿Podrías ser más específico?\n"
+        for suggestion in suggestions:
+            clarification += f"• {suggestion}\n"
+        
+        return self._send_response_with_context(numero_whatsapp, clarification)
     
     async def process_with_ai(self, numero_whatsapp: str, mensaje: str, cliente: Cliente, contexto: Dict) -> str:
         """
@@ -555,32 +720,37 @@ class EnhancedBotService:
         return "Selección de pizza (por implementar)"
     
     async def handle_continuar_pedido(self, numero_whatsapp: str, mensaje: str, cliente: Cliente) -> str:
-        """Continuar con pedido"""
+        """Continuar con pedido - Versión mejorada con resolución de ambigüedades"""
         
         # Limpiar mensaje de espacios y signos de puntuación
         mensaje_limpio = re.sub(r'[^\w\s]', '', mensaje).lower().strip()
         
-        if mensaje_limpio in ['confirmar', 'confirm', 'ok', 'si', 'yes']:
-            # Si el cliente tiene dirección registrada, mostrarla y preguntar si quiere usarla
-            if cliente.direccion is not None and cliente.direccion.strip():
-                self.set_conversation_state(numero_whatsapp, self.ESTADOS['DIRECCION'])
-                return (f"Perfecto! 🎉\n\n"
-                       f"¿Deseas usar tu dirección registrada?\n\n"
-                       f"📍 {cliente.direccion}\n\n"
-                       f"• Escribe 'sí' para usar esta dirección\n"
-                       f"• Escribe 'no' para ingresar otra dirección")
-            else:
-                # Si no tiene dirección registrada, pedirla
-                self.set_conversation_state(numero_whatsapp, self.ESTADOS['DIRECCION'])
-                return "Perfecto! 🎉\n\nPor favor, envía tu dirección de entrega:"
+        # Intentar resolución clara primero
+        if mensaje_limpio in ['confirmar', 'confirm', 'ok', 'si', 'yes', 'sí']:
+            return self._proceed_to_address_or_confirmation(numero_whatsapp, cliente)
         
         elif mensaje_limpio in ['cancelar', 'cancel', 'no']:
             self.clear_conversation_data(numero_whatsapp)
             self.set_conversation_state(numero_whatsapp, self.ESTADOS['INICIO'])
-            return "Pedido cancelado. ¡Esperamos verte pronto! 👋"
+            return self._send_response_with_context(
+                numero_whatsapp,
+                "Pedido cancelado. ¡Esperamos verte pronto! 👋"
+            )
         
+        # Si no es una respuesta clara, intentar resolución de ambigüedad
         else:
-            # Intentar agregar otra pizza usando IA
+            # Primero intentar con el resolvedor de ambigüedades
+            ambiguity_result = await self._handle_ambiguous_message(
+                numero_whatsapp, 
+                mensaje, 
+                cliente, 
+                self.ESTADOS['PEDIDO']
+            )
+            
+            if ambiguity_result is not None:
+                return ambiguity_result
+            
+            # Si el resolvedor no pudo manejar el mensaje, intentar con IA
             try:
                 # Procesar el mensaje con IA para extraer intención de pizza
                 response = await self.ai_service.process_with_ai(
@@ -613,7 +783,7 @@ class EnhancedBotService:
                     mensaje_respuesta += "• Escribe 'confirmar' para finalizar el pedido\n"
                     mensaje_respuesta += "• Escribe 'cancelar' para cancelar"
                     
-                    return mensaje_respuesta
+                    return self._send_response_with_context(numero_whatsapp, mensaje_respuesta)
                 
                 # Si la IA sugiere modificar o reemplazar el carrito
                 elif response.get('accion_sugerida') in ['limpiar_carrito', 'modificar_carrito', 'reemplazar_pedido']:
@@ -625,7 +795,10 @@ class EnhancedBotService:
                     carrito = self.get_temporary_value(numero_whatsapp, 'carrito') or []
                     
                     if not carrito:
-                        return "✅ Carrito limpiado. ¿Qué pizza te gustaría agregar?"
+                        return self._send_response_with_context(
+                            numero_whatsapp,
+                            "✅ Carrito limpiado. ¿Qué pizza te gustaría agregar?"
+                        )
                     
                     total = sum(item['precio'] * item.get('cantidad', 1) for item in carrito)
                     
@@ -643,41 +816,93 @@ class EnhancedBotService:
                     mensaje_respuesta += "• Escribe 'confirmar' para finalizar el pedido\n"
                     mensaje_respuesta += "• Escribe 'cancelar' para cancelar"
                     
-                    return mensaje_respuesta
+                    return self._send_response_with_context(numero_whatsapp, mensaje_respuesta)
                 else:
-                    # Si no es para agregar pizza, devolver la respuesta de la IA
-                    return response.get('mensaje', "No entendí tu mensaje. ¿Quieres agregar otra pizza o confirmar el pedido?")
+                    # Si la IA tampoco puede manejar el mensaje, dar respuesta de respaldo con contexto
+                    return self._send_response_with_context(
+                        numero_whatsapp,
+                        response.get('mensaje', self._get_helpful_fallback_message(numero_whatsapp))
+                    )
                     
             except Exception as e:
                 logger.error(f"Error procesando mensaje con IA: {str(e)}")
-                return ("No entendí tu mensaje. ¿Quieres agregar otra pizza o confirmar el pedido?\n"
-                       "• Escribe 'confirmar' para finalizar\n"
-                       "• Escribe 'cancelar' para cancelar")
+                return self._send_response_with_context(
+                    numero_whatsapp,
+                    self._get_helpful_fallback_message(numero_whatsapp)
+                )
+    
+    def _get_helpful_fallback_message(self, numero_whatsapp: str) -> str:
+        """Obtener mensaje de respaldo útil cuando no se entiende el mensaje del usuario"""
+        carrito = self.get_temporary_value(numero_whatsapp, 'carrito') or []
+        
+        fallback_msg = "🤔 No estoy seguro de entender tu mensaje.\n\n"
+        
+        if carrito:
+            total = sum(item['precio'] * item.get('cantidad', 1) for item in carrito)
+            fallback_msg += "📋 *Tu pedido actual:*\n"
+            for item in carrito:
+                emoji = item.get('pizza_emoji', '🍕')
+                cantidad = item.get('cantidad', 1)
+                fallback_msg += f"• {emoji} {item['pizza_nombre']} - {item['tamano'].title()} x{cantidad}\n"
+            fallback_msg += f"\n*Total: ${total:.2f}*\n\n"
+        
+        fallback_msg += "💡 *¿Qué quisieras hacer?*\n"
+        fallback_msg += "• Escribe 'confirmar' para continuar con tu pedido\n"
+        fallback_msg += "• Escribe el nombre de una pizza para agregar más\n"
+        fallback_msg += "• Escribe 'cancelar' si quieres cancelar\n"
+        fallback_msg += "• Escribe 'ayuda' si necesitas más opciones"
+        
+        return fallback_msg
     
     async def handle_direccion(self, numero_whatsapp: str, mensaje: str, cliente: Cliente) -> str:
-        """Manejar dirección"""
+        """Manejar dirección - Versión mejorada con resolución de ambigüedades"""
         
         mensaje_limpio = re.sub(r'[^\w\s]', '', mensaje).lower().strip()
         
-        # Si el usuario confirma usar la dirección registrada
+        # Intentar resolución clara primero
         if cliente.direccion is not None and mensaje_limpio in ['si', 'sí', 'yes', 'usar', 'ok']:
             direccion_entrega = cliente.direccion
-        # Si el usuario dice no, pedir nueva dirección
         elif cliente.direccion is not None and mensaje_limpio in ['no', 'otro', 'otra', 'nueva', 'cambiar']:
-            return ("Por favor, ingresa tu nueva dirección de entrega:\n\n"
-                   "Asegúrate de incluir calle, número, ciudad y código postal.")
-        # Si proporciona una nueva dirección (mínimo 10 caracteres)
+            return self._send_response_with_context(
+                numero_whatsapp,
+                "Por favor, ingresa tu nueva dirección de entrega:\n\n"
+                "Asegúrate de incluir calle, número, ciudad y código postal."
+            )
         elif len(mensaje.strip()) >= 10:
+            # Es una dirección válida
             direccion_entrega = mensaje.strip()
         else:
-            # Si no tiene dirección registrada o la respuesta no es clara
+            # La respuesta no es clara, intentar resolver ambigüedad
+            ambiguity_result = await self._handle_ambiguous_message(
+                numero_whatsapp,
+                mensaje,
+                cliente,
+                self.ESTADOS['DIRECCION']
+            )
+            
+            if ambiguity_result is not None:
+                return ambiguity_result
+            
+            # Si no se pudo resolver, dar respuesta contextual
             if cliente.direccion is not None:
-                return (f"¿Deseas usar tu dirección registrada?\n\n"
-                       f"📍 {cliente.direccion}\n\n"
-                       "• Escribe 'sí' para usar esta dirección\n"
-                       "• Escribe 'no' para ingresar otra dirección")
+                return self._send_response_with_context(
+                    numero_whatsapp,
+                    f"🤔 No estoy seguro de entender '{mensaje}'.\n\n"
+                    f"¿Deseas usar tu dirección registrada?\n\n"
+                    f"📍 {cliente.direccion}\n\n"
+                    "• Escribe 'sí' para usar esta dirección\n"
+                    "• Escribe 'no' para ingresar otra dirección"
+                )
             else:
-                return "Por favor ingresa una dirección completa con calle, número, ciudad y código postal."
+                return self._send_response_with_context(
+                    numero_whatsapp,
+                    f"🤔 No estoy seguro de entender '{mensaje}'.\n\n"
+                    "Por favor ingresa una dirección completa con:\n"
+                    "• Calle y número\n"
+                    "• Ciudad\n"
+                    "• Código postal\n\n"
+                    "Ejemplo: Calle 123 #45-67, Bogotá, 110111"
+                )
         
         # Guardar dirección de entrega
         self.set_temporary_value(numero_whatsapp, 'direccion', direccion_entrega)
@@ -705,10 +930,10 @@ class EnhancedBotService:
         mensaje_respuesta += "• Escribe 'sí' para confirmar\n"
         mensaje_respuesta += "• Escribe 'no' para cancelar"
         
-        return mensaje_respuesta
+        return self._send_response_with_context(numero_whatsapp, mensaje_respuesta)
     
     async def handle_confirmacion(self, numero_whatsapp: str, mensaje: str, cliente: Cliente) -> str:
-        """Confirmar pedido"""
+        """Confirmar pedido - Versión mejorada con resolución de ambigüedades"""
         
         # Normalizar mensaje para eliminar acentos y signos de puntuación
         mensaje_limpio = mensaje.lower().strip()
@@ -717,43 +942,87 @@ class EnhancedBotService:
         # Eliminar signos de puntuación
         mensaje_limpio = re.sub(r'[^\w\s]', '', mensaje_limpio)
         
+        # Intentar resolución clara primero
         if mensaje_limpio in ['si', 'yes', 'confirmar', 'ok', 'okay']:
-            # Crear pedido en base de datos
-            carrito = self.get_temporary_value(numero_whatsapp, 'carrito') or []
-            direccion = self.get_temporary_value(numero_whatsapp, 'direccion') or ""
-            
-            if not carrito:
-                return "No hay productos en tu carrito. Comienza un nuevo pedido escribiendo 'menú'."
-            
-            try:
-                # Crear el pedido usando el servicio de pedidos
-                pedido_id = await self.pedido_service.crear_pedido(cliente, carrito, direccion)
-                
-                # Calcular total para mostrar en mensaje
-                total = sum(item['precio'] * item.get('cantidad', 1) for item in carrito)
-                
-                # Limpiar conversación
-                self.clear_conversation_data(numero_whatsapp)
-                self.set_conversation_state(numero_whatsapp, self.ESTADOS['FINALIZADO'])
-                
-                mensaje = f"🎉 ¡Pedido confirmado!\n\n"
-                mensaje += f"📋 Número de pedido: #{pedido_id}\n"
-                mensaje += f"💰 Total: ${total:.2f}\n"
-                mensaje += f"📍 Dirección: {direccion}\n"
-                mensaje += f"⏰ Tiempo estimado: 30-45 minutos\n\n"
-                mensaje += "📱 Te notificaremos cuando tu pedido esté listo.\n"
-                mensaje += "¡Gracias por elegir Pizza Bias! 🍕"
-                
-                return mensaje
-                
-            except Exception as e:
-                logger.error(f"Error creando pedido: {str(e)}")
-                return ("❌ Hubo un error al procesar tu pedido. Por favor intenta de nuevo.\n"
-                       "Si el problema persiste, contacta a soporte.")
+            return await self._process_order_confirmation(numero_whatsapp, cliente)
+        
+        elif mensaje_limpio in ['no', 'cancelar', 'cancel']:
+            return await self._process_order_cancellation(numero_whatsapp)
         
         else:
-            # Cancelar pedido
-            self.clear_conversation_data(numero_whatsapp)
-            self.set_conversation_state(numero_whatsapp, self.ESTADOS['INICIO'])
+            # La respuesta no es clara, intentar resolver ambigüedad
+            ambiguity_result = await self._handle_ambiguous_message(
+                numero_whatsapp,
+                mensaje,
+                cliente,
+                self.ESTADOS['CONFIRMACION']
+            )
             
-            return "❌ Pedido cancelado. ¡Esperamos verte pronto! 👋\n\nEscribe 'menú' para hacer un nuevo pedido."
+            if ambiguity_result is not None:
+                return ambiguity_result
+            
+            # Si no se pudo resolver, mostrar contexto del pedido y pedir clarificación
+            return await self._ask_for_confirmation_clarification(numero_whatsapp, mensaje, cliente)
+    
+    async def _process_order_confirmation(self, numero_whatsapp: str, cliente: Cliente) -> str:
+        """Procesar confirmación del pedido"""
+        carrito = self.get_temporary_value(numero_whatsapp, 'carrito') or []
+        direccion = self.get_temporary_value(numero_whatsapp, 'direccion') or ""
+        
+        if not carrito:
+            return "No hay productos en tu carrito. Comienza un nuevo pedido escribiendo 'menú'."
+        
+        try:
+            # Crear el pedido usando el servicio de pedidos
+            pedido_id = await self.pedido_service.crear_pedido(cliente, carrito, direccion)
+            
+            # Calcular total para mostrar en mensaje
+            total = sum(item['precio'] * item.get('cantidad', 1) for item in carrito)
+            
+            # Limpiar conversación
+            self.clear_conversation_data(numero_whatsapp)
+            self.set_conversation_state(numero_whatsapp, self.ESTADOS['FINALIZADO'])
+            
+            mensaje = f"🎉 ¡Pedido confirmado!\n\n"
+            mensaje += f"📋 Número de pedido: #{pedido_id}\n"
+            mensaje += f"💰 Total: ${total:.2f}\n"
+            mensaje += f"📍 Dirección: {direccion}\n"
+            mensaje += f"⏰ Tiempo estimado: 30-45 minutos\n\n"
+            mensaje += "📱 Te notificaremos cuando tu pedido esté listo.\n"
+            mensaje += "¡Gracias por elegir Pizza Express! 🍕"
+            
+            return mensaje
+            
+        except Exception as e:
+            logger.error(f"Error creando pedido: {str(e)}")
+            return ("❌ Hubo un error al procesar tu pedido. Por favor intenta de nuevo.\n"
+                   "Si el problema persiste, contacta a soporte.")
+    
+    async def _process_order_cancellation(self, numero_whatsapp: str) -> str:
+        """Procesar cancelación del pedido"""
+        self.clear_conversation_data(numero_whatsapp)
+        self.set_conversation_state(numero_whatsapp, self.ESTADOS['INICIO'])
+        
+        return ("❌ Pedido cancelado. ¡Esperamos verte pronto! 👋\n\n"
+               "Escribe 'menú' para hacer un nuevo pedido.")
+    
+    async def _ask_for_confirmation_clarification(self, numero_whatsapp: str, mensaje_original: str, cliente: Cliente) -> str:
+        """Pedir clarificación cuando no se entiende la respuesta de confirmación"""
+        carrito = self.get_temporary_value(numero_whatsapp, 'carrito') or []
+        direccion = self.get_temporary_value(numero_whatsapp, 'direccion') or ""
+        total = sum(item['precio'] * item.get('cantidad', 1) for item in carrito)
+        
+        clarification_msg = f"🤔 No estoy seguro de entender '{mensaje_original}'.\n\n"
+        clarification_msg += "📋 *RESUMEN DE TU PEDIDO:*\n"
+        for item in carrito:
+            emoji = item.get('pizza_emoji', '🍕')
+            cantidad = item.get('cantidad', 1)
+            clarification_msg += f"• {emoji} {item['pizza_nombre']} - {item['tamano'].title()} x{cantidad}\n"
+        
+        clarification_msg += f"\n📍 *Dirección:* {direccion}\n"
+        clarification_msg += f"💰 *Total:* ${total:.2f}\n\n"
+        clarification_msg += "❓ *¿Quieres confirmar este pedido?*\n"
+        clarification_msg += "• Escribe 'sí' para confirmar el pedido\n"
+        clarification_msg += "• Escribe 'no' para cancelar el pedido"
+        
+        return self._send_response_with_context(numero_whatsapp, clarification_msg)
